@@ -1,6 +1,5 @@
-use std::str::FromStr;
 use std::time::Duration;
-use std::{env::var, fmt};
+use std::env::var;
 
 use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
@@ -213,12 +212,6 @@ async fn main() -> Result<(), BoxDynError> {
         .await
         .expect("Failed to create sqlx database pool");
 
-    let rtcs = {
-        let mut conn = pool.acquire().await?;
-
-        ListQuery::new().execute(&mut conn).await?
-    };
-
     let mut bulk_upsert = BulkUpsertQuery::new();
 
     let rtcs = {
@@ -230,7 +223,7 @@ async fn main() -> Result<(), BoxDynError> {
     for rtc in rtcs {
         let rtc_id = rtc.id;
 
-        let mut q = UpsertQuery::new(rtc_id);
+        let q = UpsertQuery::new(rtc_id);
 
         bulk_upsert.query(q);
     }
