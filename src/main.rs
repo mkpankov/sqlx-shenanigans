@@ -189,9 +189,6 @@ impl<'a> BulkUpsertQuery<'a> {
             .map(|x| x.send_audio_updated_by)
             .collect::<Vec<_>>();
 
-        // NOTE: Initial insert of NULL for send_video or send_audio means inserting TRUE
-        // Update with NULL doesn't touch the column
-        // Update with value updates the value
         let results = sqlx::query!(
             r#"
             WITH input(rtc_id,send_audio_updated_by) AS
