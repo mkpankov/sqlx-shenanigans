@@ -1,0 +1,175 @@
+{
+  "db": "PostgreSQL",
+  "3ddde1ff96161e86ddc7c4a48a5d2af8e216e508fb4f6cc4f41c3dc96bf8a1f9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT\n                id as \"id: Id\"\n            FROM rtc\n            "
+  },
+  "a0d7fa8065d5f5a0cc519d8c6c9e5d24c95495f88f51d7c3ad17473508c577d6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_audio_updated_by?: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT\n                r.id as \"rtc_id: Id\",\n                rwc.send_audio_updated_by as \"send_audio_updated_by?: AgentId\"\n            FROM rtc_writer_config as rwc\n            INNER JOIN rtc as r\n            ON rwc.rtc_id = r.id\n            "
+  },
+  "a9c25eaa90f905be378f7b63736a4f9efd5d59162f2746bf6d419c6874a1f1ed": {
+    "describe": {
+      "columns": [
+        {
+          "name": "rtc_id: Id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "send_audio_updated_by?: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray",
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Composite": [
+                        [
+                          "account_id",
+                          {
+                            "Custom": {
+                              "kind": {
+                                "Composite": [
+                                  [
+                                    "label",
+                                    "Text"
+                                  ],
+                                  [
+                                    "audience",
+                                    "Text"
+                                  ]
+                                ]
+                              },
+                              "name": "account_id"
+                            }
+                          }
+                        ],
+                        [
+                          "label",
+                          "Text"
+                        ]
+                      ]
+                    },
+                    "name": "agent_id"
+                  }
+                }
+              },
+              "name": "_agent_id"
+            }
+          }
+        ]
+      }
+    },
+    "query": "\n            WITH input(rtc_id,send_audio_updated_by) AS\n                (SELECT \n                    rtc_id, \n                    (send_audio_updated_by_account_id, send_audio_updated_by_label)::agent_id\n                FROM UNNEST (\n                    $1::uuid[], \n                    $2::agent_id[]\n                ) AS source(rtc_id,send_audio_updated_by_account_id,send_audio_updated_by_label))\n            INSERT INTO \n                rtc_writer_config (\n                    rtc_id, \n                    send_audio_updated_by\n                )\n            (SELECT \n                rtc_id, \n                send_audio_updated_by\n            FROM input)\n            ON CONFLICT (rtc_id) DO UPDATE\n            SET\n                send_audio_updated_by = excluded.send_audio_updated_by\n            RETURNING\n            rtc_id as \"rtc_id: Id\",\n            send_audio_updated_by as \"send_audio_updated_by?: AgentId\"\n            "
+  }
+}

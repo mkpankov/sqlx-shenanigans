@@ -1,15 +1,57 @@
-use std::time::Duration;
 use std::env::var;
+use std::time::Duration;
 
-use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
-use sqlx::Acquire;
 use sqlx::error::BoxDynError;
+use sqlx::Acquire;
 use uuid::Uuid;
 
+#[tokio::main]
+async fn main() -> Result<(), BoxDynError> {
+    println!("Hello, world!");
 
-#[derive(Debug)]
-pub struct ListWithRtcQuery {
+    let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .min_connections(2)
+        .acquire_timeout(Duration::from_secs(1))
+        .max_lifetime(Duration::from_secs(43200))
+        .connect(&url)
+        .await
+        .expect("Failed to create sqlx database pool");
+
+    let mut bulk_upsert = BulkUpsertQuery::new();
+
+    let rtcs = {
+        let mut conn = pool.acquire().await?;
+
+        println!("Executing ListQuery");
+        ListQuery::new().execute(&mut conn).await?
+    };
+
+    for rtc in rtcs {
+        let rtc_id = rtc.id;
+
+        let q = UpsertQuery::new(rtc_id);
+
+        bulk_upsert.query(q);
+    }
+
+    let results = {
+        let mut conn = pool.acquire().await?;
+        let mut trans = conn.begin().await?;
+        println!("Executing BulkUpsertQuery");
+        bulk_upsert.execute(&mut trans).await?;
+        trans.commit().await?;
+        // Retrieve state data.
+        println!("Executing ListWithRtcQuery");
+        ListWithRtcQuery::new().execute(&mut conn).await?
+    };
+
+    println!("{results:?}");
+
+    Ok(())
 }
 
 struct ListWithRtcRow {
@@ -24,24 +66,28 @@ impl ListWithRtcRow {
                 rtc_id: self.rtc_id,
                 send_audio_updated_by: self.send_audio_updated_by,
             },
-            RtcObject {
-                id: self.rtc_id,
-            },
+            RtcObject { id: self.rtc_id },
         )
     }
 }
 
+#[derive(Debug)]
+pub struct ListWithRtcQuery {}
+
 impl ListWithRtcQuery {
     pub fn new() -> Self {
-        Self { }
+        Self {}
     }
 
-    pub async fn execute(&self, conn: &mut sqlx::PgConnection) -> sqlx::Result<Vec<(Object, RtcObject)>> {
+    pub async fn execute(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> sqlx::Result<Vec<(Object, RtcObject)>> {
         let results = sqlx::query!(
             r#"
             SELECT
                 r.id as "rtc_id: Id",
-                rwc.send_audio_updated_by as "send_audio_updated_by: (Option<AccountId>, Option<String>)"
+                rwc.send_audio_updated_by as "send_audio_updated_by?: AgentId"
             FROM rtc_writer_config as rwc
             INNER JOIN rtc as r
             ON rwc.rtc_id = r.id
@@ -54,7 +100,7 @@ impl ListWithRtcQuery {
             .into_iter()
             .map(|r| {
                 let send_audio_updated_by = match r.send_audio_updated_by {
-                    Some((Some(account_id), Some(label))) => Some(AgentId::new(label, account_id)),
+                    Some(agent_id) => Some(agent_id),
                     _ => None,
                 };
 
@@ -117,8 +163,6 @@ impl<'a> UpsertQuery<'a> {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Clone, Debug)]
 pub struct BulkUpsertQuery<'a> {
     queries: Vec<UpsertQuery<'a>>,
@@ -172,7 +216,7 @@ impl<'a> BulkUpsertQuery<'a> {
                 send_audio_updated_by = excluded.send_audio_updated_by
             RETURNING
             rtc_id as "rtc_id: Id",
-            send_audio_updated_by as "send_audio_updated_by: (Option<AccountId>, Option<String>)"
+            send_audio_updated_by as "send_audio_updated_by?: AgentId"
             "#,
             &rtc_id as &[Id],
             &send_audio_updated_by as &[Option<&AgentId>],
@@ -184,7 +228,7 @@ impl<'a> BulkUpsertQuery<'a> {
             .into_iter()
             .map(|r| {
                 let send_audio_updated_by = match r.send_audio_updated_by {
-                    Some((Some(account_id), Some(label))) => Some(AgentId::new(label, account_id)),
+                    Some(agent_id) => Some(agent_id),
                     _ => None,
                 };
 
@@ -197,62 +241,6 @@ impl<'a> BulkUpsertQuery<'a> {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), BoxDynError> {
-    println!("Hello, world!");
-
-    let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
-
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
-        .min_connections(2)
-        .acquire_timeout(Duration::from_secs(1))
-        .max_lifetime(Duration::from_secs(43200))
-        .connect(&url)
-        .await
-        .expect("Failed to create sqlx database pool");
-
-    let mut bulk_upsert = BulkUpsertQuery::new();
-
-    let rtcs = {
-        let mut conn = pool.acquire().await?;
-
-        ListQuery::new().execute(&mut conn).await?
-    };
-
-    for rtc in rtcs {
-        let rtc_id = rtc.id;
-
-        let q = UpsertQuery::new(rtc_id);
-
-        bulk_upsert.query(q);
-    }
-
-    let results = {
-        let mut conn = pool.acquire().await?;
-        let mut trans = conn.begin().await?;
-        bulk_upsert.execute(&mut trans).await?;
-        trans.commit().await?;
-        // Retrieve state data.
-        ListWithRtcQuery::new()
-            .execute(&mut conn)
-            .await?
-    };
-
-    println!("{results:?}");
-
-    Ok(())
-}
-
-/// Agent identifier.
-///
-/// It consists of a string `label` and [AccountId](struct.AccountId.html) and must be unique.
-///
-/// Multiple agents may use the same [AccountId](struct.AccountId.html), e.g. multiple instances
-/// of the same service or multiple devices or browser tabs of an end user, but the `label`
-/// must be different across them. An agent identifier has to be unique, otherwise it gets
-/// disconnected by the broker. You can safely use the same `label` if
-/// [AccountId](struct.AccountId.html) is different.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AgentId {
     account_id: AccountId,
@@ -321,21 +309,6 @@ impl sqlx::postgres::PgHasArrayType for &AgentId {
 }
 
 impl AgentId {
-    /// Builds an [AgentId](struct.AgentId.html).
-    ///
-    /// # Arguments
-    ///
-    /// * `label` – a unique string to identify the particular agent.
-    /// For example the name of a service instance or a user device.
-    ///
-    /// * `account_id` – the account identifier of an agent.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let agent_id1 = AgentId::new("instance01", AccountId::new("service_name", "svc.example.org"));
-    /// let agent_id2 = AgentId::new("web", AccountId::new("user_name", "usr.example.org"));
-    /// ```
     pub fn new<S: Into<String>>(label: S, account_id: AccountId) -> Self {
         Self {
             label: label.into(),
@@ -355,23 +328,6 @@ pub struct AccountId {
     audience: String,
 }
 
-impl AccountId {
-    pub fn new(label: &str, audience: &str) -> Self {
-        Self {
-            label: label.to_owned(),
-            audience: audience.to_owned(),
-        }
-    }
-
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-
-    pub fn audience(&self) -> &str {
-        &self.audience
-    }
-}
-
 #[derive(Debug)]
 pub struct Object {
     #[allow(unused)]
@@ -379,9 +335,7 @@ pub struct Object {
     send_audio_updated_by: Option<AgentId>,
 }
 
-#[derive(
-    Debug, Deserialize, Serialize, Display, Copy, Clone, Hash, PartialEq, Eq, FromStr, sqlx::Type,
-)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, Hash, PartialEq, Eq, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct Id(Uuid);
 
