@@ -87,7 +87,7 @@ impl ListWithRtcQuery {
             r#"
             SELECT
                 r.id as "rtc_id: Id",
-                rwc.send_audio_updated_by as "send_audio_updated_by?: AgentId"
+                rwc.send_audio_updated_by as "send_audio_updated_by?: (Option<AccountId>, Option<String>)"
             FROM rtc_writer_config as rwc
             INNER JOIN rtc as r
             ON rwc.rtc_id = r.id
@@ -100,7 +100,7 @@ impl ListWithRtcQuery {
             .into_iter()
             .map(|r| {
                 let send_audio_updated_by = match r.send_audio_updated_by {
-                    Some(agent_id) => Some(agent_id),
+                    Some((Some(account_id), Some(label))) => Some(AgentId::new(label, account_id)),
                     _ => None,
                 };
 
@@ -213,7 +213,7 @@ impl<'a> BulkUpsertQuery<'a> {
                 send_audio_updated_by = excluded.send_audio_updated_by
             RETURNING
             rtc_id as "rtc_id: Id",
-            send_audio_updated_by as "send_audio_updated_by?: AgentId"
+            send_audio_updated_by as "send_audio_updated_by?: (Option<AccountId>, Option<String>)"
             "#,
             &rtc_id as &[Id],
             &send_audio_updated_by as &[Option<&AgentId>],
@@ -225,7 +225,7 @@ impl<'a> BulkUpsertQuery<'a> {
             .into_iter()
             .map(|r| {
                 let send_audio_updated_by = match r.send_audio_updated_by {
-                    Some(agent_id) => Some(agent_id),
+                    Some((Some(account_id), Some(label))) => Some(AgentId::new(label, account_id)),
                     _ => None,
                 };
 
