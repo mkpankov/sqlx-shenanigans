@@ -15,14 +15,6 @@ BEGIN
             label text
         );
     END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rtc_sharing_policy') THEN
-        CREATE TYPE rtc_sharing_policy AS ENUM (
-            'none',
-            'shared',
-            'owned'
-        );
-    END IF;
 END $$;
 
 CREATE TABLE IF NOT EXISTS _sqlx_migrations (
@@ -48,3 +40,10 @@ CREATE TABLE IF NOT EXISTS rtc_writer_config (
     PRIMARY KEY (rtc_id),
     FOREIGN KEY (rtc_id) REFERENCES rtc (id) ON DELETE CASCADE
 );
+
+INSERT INTO rtc(id) VALUES
+    (DEFAULT),
+    (DEFAULT),
+    (DEFAULT),
+    (DEFAULT),
+    (DEFAULT);
